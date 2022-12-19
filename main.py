@@ -10,6 +10,7 @@ tile_width = tile_height = 50
 
 # группы спрайтов
 all_sprites = pygame.sprite.Group()
+
 tiles_group = pygame.sprite.Group()
 hero_group = pygame.sprite.Group()
 mob_group = pygame.sprite.Group()
@@ -46,9 +47,6 @@ class Tile(pygame.sprite.Sprite):
         self.rect = self.image.get_rect().move(
             tile_width * pos_x, tile_height * pos_y)
 
-    def get_tile_id(self, position):
-        return
-
 
 class Map:
     def __init__(self, filename):
@@ -84,6 +82,7 @@ class Map:
     def get_tile_check(self, position):
         x = (position[0]) // tile_width
         y = (position[1]) // tile_height
+        # print(x, y)
         return self.map[y][x]
 
 
@@ -159,10 +158,11 @@ class Hero(pygame.sprite.Sprite):
     image_w = load_image("characters/character_w.png")
     image_s = load_image("characters/character.png")
 
-    def __init__(self, map):
+    def __init__(self, map, position):
         super().__init__(hero_group, all_sprites)
         self.map = map
         self.map_size = self.map.get_size_map()
+        self.size = (48, 60)
         self.health_point = 100
         self.speed = 6
         self.direction = 's'
@@ -170,6 +170,8 @@ class Hero(pygame.sprite.Sprite):
         self.attack_speed = 5
         self.timer = 0
         self.rect = self.image.get_rect()
+        self.x, self.y = position[0] + self.size[0] // 2, position[1] + self.size[1] // 2
+        print(self.x, self.y)
 
         self.mask = pygame.mask.from_surface(self.image)
 
@@ -194,7 +196,7 @@ class Hero(pygame.sprite.Sprite):
         self.cut_sheet(load_image(self.run_up), 3, 1, self.frames_run_up)
 
     def cut_sheet(self, sheet, columns, rows, frames):
-        self.rect = pygame.Rect(100, 100, sheet.get_width() // columns, sheet.get_height() // rows)
+        self.rect = pygame.Rect(self.x, self.y, sheet.get_width() // columns, sheet.get_height() // rows)
         for j in range(rows):
             for i in range(columns):
                 frame_location = (self.rect.w * i, self.rect.h * j)
@@ -232,7 +234,7 @@ class Hero(pygame.sprite.Sprite):
         return frames_run_count, frames_run
 
     def check_move(self, position):
-        print(self.rect)
+        # print(self.rect)
         return self.map.get_tile_check(position)
 
     def get_direction(self):
@@ -244,26 +246,34 @@ class Hero(pygame.sprite.Sprite):
             self.direction = 'd'
             self.frames_run_count_right, self.frames_run_right = self.animated_move(self.frames_run_count_right,
                                                                                     self.frames_run_right)
-            if self.check_move((self.rect.right + 1, self.rect.centery)) != '#':
+            if not pygame.sprite.spritecollideany(self, block_group):
                 self.rect.x += self.speed
+            else:
+                self.rect.x -= self.speed
         if keys[pygame.K_a]:
             self.direction = 'a'
             self.frames_run_count_left, self.frames_run_left = self.animated_move(self.frames_run_count_left,
                                                                                   self.frames_run_left)
-            if self.check_move((self.rect.left - 1, self.rect.centery)) != '#':
+            if not pygame.sprite.spritecollideany(self, block_group):
                 self.rect.x -= self.speed
+            else:
+                self.rect.x += self.speed
         if keys[pygame.K_w]:
             self.direction = 'w'
             self.frames_run_count_up, self.frames_run_up = self.animated_move(self.frames_run_count_up,
                                                                               self.frames_run_up)
-            if self.check_move((self.rect.centerx, self.rect.top - 1)) != '#':
+            if not pygame.sprite.spritecollideany(self, block_group):
                 self.rect.y -= self.speed
+            else:
+                self.rect.y += self.speed
         if keys[pygame.K_s]:
             self.direction = 's'
             self.frames_run_count_down, self.frames_run_down = self.animated_move(self.frames_run_count_down,
                                                                                   self.frames_run_down)
-            if self.check_move((self.rect.centerx, self.rect.bottom + 1)) != '#':
+            if not pygame.sprite.spritecollideany(self, block_group):
                 self.rect.y += self.speed
+            else:
+                self.rect.y -= self.speed
 
     def update(self, *args, **kwargs):
         self.idle()
@@ -288,10 +298,11 @@ class Camera:
         self.dy = -(target.rect.y + target.rect.h // 2 - height // 2)
 
 
-camera = Camera()
 running = True
 m = Map('room_1.txt')
-character = Hero(m)
+character = Hero(m, (100, 100))
+camera = Camera()
+
 for i in range(200, 600, 100):
     Mob(200, i)
 while running:
