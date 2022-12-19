@@ -12,6 +12,9 @@ tile_width = tile_height = 50
 all_sprites = pygame.sprite.Group()
 tiles_group = pygame.sprite.Group()
 hero_group = pygame.sprite.Group()
+mob_group = pygame.sprite.Group()
+missile_group = pygame.sprite.Group()
+block_group = pygame.sprite.Group()
 
 
 def load_image(name, colorkey=None):
@@ -47,14 +50,6 @@ class Tile(pygame.sprite.Sprite):
         return
 
 
-class Enemy(pygame.sprite.Sprite):
-    def __init__(self, *groups):
-        super().__init__(*groups)
-
-    def dead(self):
-        self.kill()
-
-
 class Map:
     def __init__(self, filename):
         self.map_row = self.load_level(filename)
@@ -83,29 +78,101 @@ class Map:
                 if level[y][x] == '0':
                     Tile('empty', x, y)
                 elif level[y][x] == '#':
-                    Tile('wall', x, y)
+                    block_group.add(Tile('wall', x, y))
         return x, y
 
     def get_tile_check(self, position):
-        x = position[0] // tile_width
-        y = position[1] // tile_height
+        x = (position[0]) // tile_width
+        y = (position[1]) // tile_height
         return self.map[y][x]
 
 
-class Hero(Enemy):
-    # 48x60
-    image = load_image("characters/character_down.png")
+class Mob(pygame.sprite.Sprite):
+    image = load_image("characters/character.png")
 
-    def __init__(self, map, *groups):
+    def __init__(self, x, y, *groups):
+        super().__init__(mob_group, all_sprites)
+        self.image = Mob.image
+        self.rect = self.image.get_rect()
+        self.mask = pygame.mask.from_surface(self.image)
+        self.hp = 30
+        self.frames_run_down = []
+        self.frames_run_count_down = 0
+        self.run_down = 'characters/character_down.png'
+        self.cut_sheet(load_image(self.run_down), 3, 1, self.frames_run_down, x, y)
+
+    def cut_sheet(self, sheet, columns, rows, frames, x, y):
+        self.rect = pygame.Rect(x, y, sheet.get_width() // columns, sheet.get_height() // rows)
+        for j in range(rows):
+            for i in range(columns):
+                frame_location = (self.rect.w * i, self.rect.h * j)
+                frames.append(sheet.subsurface(pygame.Rect(
+                    frame_location, self.rect.size)))
+
+    def get_damage(self, hp):
+        self.hp -= hp
+        if self.hp <= 0:
+            self.kill()
+
+
+class Missile(pygame.sprite.Sprite):
+    def __init__(self, map, char, direction):
+        super().__init__(missile_group, all_sprites)
+
+        self.map = map
+        self.map_size = self.map.get_size_map()
+        self.speed = 10
+        self.char, self.direction = char, direction
+        print(self.char, self.direction)
+        self.image = pygame.Surface((2 * 5, 2 * 5),
+                                    pygame.SRCALPHA, 32)
+        pygame.draw.circle(self.image, pygame.Color("white"),
+                           (5, 5), 5)
+        self.rect = pygame.Rect(self.char[0], self.char[1], 2 * 5, 2 * 5)
+
+        self.mask = pygame.mask.from_surface(self.image)
+        self.rect.centerx = self.char[0]
+        self.rect.centery = self.char[1]
+
+    def update(self):
+        if self.direction == 'd':
+            self.rect.centerx += self.speed
+        if self.direction == 'a':
+            self.rect.centerx -= self.speed
+        if self.direction == 'w':
+            self.rect.centery -= self.speed
+        if self.direction == 's':
+            self.rect.centery += self.speed
+
+        for mob in pygame.sprite.spritecollide(self, mob_group, dokill=False):
+            mob.get_damage(10)
+            self.kill()
+        if pygame.sprite.spritecollideany(self, block_group):
+            self.kill()
+
+
+class Hero(pygame.sprite.Sprite):
+    # 48x60
+    image = load_image("characters/character.png")
+    image_d = load_image("characters/character_d.png")
+    image_a = load_image("characters/character_a.png")
+    image_w = load_image("characters/character_w.png")
+    image_s = load_image("characters/character.png")
+
+    def __init__(self, map):
         super().__init__(hero_group, all_sprites)
         self.map = map
         self.map_size = self.map.get_size_map()
-        # print(self.map_size)
-        self.speed = 10
-        self.image = Hero.image
+        self.health_point = 100
+        self.speed = 6
+        self.direction = 's'
+        self.idle()
+        self.attack_speed = 5
+        self.timer = 0
         self.rect = self.image.get_rect()
-        self.rect.x = 500
-        self.rect.y = 500
+        self.x, self.y = self.rect.centerx, self.rect.centery
+
+        self.mask = pygame.mask.from_surface(self.image)
 
         self.frames_run_down = []
         self.frames_run_count_down = 0
@@ -134,9 +201,31 @@ class Hero(Enemy):
                 frame_location = (self.rect.w * i, self.rect.h * j)
                 frames.append(sheet.subsurface(pygame.Rect(
                     frame_location, self.rect.size)))
+                frames.append(sheet.subsurface(pygame.Rect(
+                    frame_location, self.rect.size)))
 
     def idle(self):
-        pass
+        if self.direction == 'd':
+            self.image = Hero.image_d
+        elif self.direction == 'a':
+            self.image = Hero.image_a
+        elif self.direction == 'w':
+            self.image = Hero.image_w
+        elif self.direction == 's':
+            self.image = Hero.image_s
+
+    def get_rect_center(self):
+        return self.rect.center
+
+    def take_damage(self, damage):
+        self.health_point -= damage
+
+    def attack(self):
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_SPACE]:
+            self.timer = (self.timer + 1) % self.attack_speed
+            if self.timer == 0:
+                Missile(self.map, self.rect.center, self.direction)
 
     def animated_move(self, frames_run_count, frames_run):
         frames_run_count = (frames_run_count + 1) % len(frames_run)
@@ -144,45 +233,82 @@ class Hero(Enemy):
         return frames_run_count, frames_run
 
     def check_move(self, position):
+        print(self.rect)
         return self.map.get_tile_check(position)
 
-    def update(self, *args, **kwargs):
+    def get_direction(self):
+        return self.direction
 
+    def move(self):
         keys = pygame.key.get_pressed()
         if keys[pygame.K_d]:
+            self.direction = 'd'
             self.frames_run_count_right, self.frames_run_right = self.animated_move(self.frames_run_count_right,
                                                                                     self.frames_run_right)
-            if self.check_move((self.rect.right + 1, self.rect.centery)) != '#':
+            if self.check_move((self.x + tile_width // 2 + 1, self.y)) != '#':
                 self.rect.x += self.speed
         if keys[pygame.K_a]:
+            self.direction = 'a'
             self.frames_run_count_left, self.frames_run_left = self.animated_move(self.frames_run_count_left,
                                                                                   self.frames_run_left)
-            if self.check_move((self.rect.left - 1, self.rect.centery)) != '#':
+            if self.check_move((self.x - tile_width // 2 - 1, self.y)) != '#':
                 self.rect.x -= self.speed
         if keys[pygame.K_w]:
+            self.direction = 'w'
             self.frames_run_count_up, self.frames_run_up = self.animated_move(self.frames_run_count_up,
                                                                               self.frames_run_up)
-            if self.check_move((self.rect.centerx, self.rect.top - 1)) != '#':
+            if self.check_move((self.x, self.y - tile_height // 2 - 1)) != '#':
                 self.rect.y -= self.speed
         if keys[pygame.K_s]:
+            self.direction = 's'
             self.frames_run_count_down, self.frames_run_down = self.animated_move(self.frames_run_count_down,
                                                                                   self.frames_run_down)
-            if self.check_move((self.rect.centerx, self.rect.bottom + 1)) != '#':
+            if self.check_move((self.x, self.y + tile_height // 2 + 1)) != '#':
                 self.rect.y += self.speed
+        self.x += camera.dx
+        self.y += camera.dy
+
+    def update(self, *args, **kwargs):
+        self.idle()
+        self.move()
+        self.attack()
 
 
+class Camera:
+    # зададим начальный сдвиг камеры
+    def __init__(self):
+        self.dx = 0
+        self.dy = 0
+
+    # сдвинуть объект obj на смещение камеры
+    def apply(self, obj):
+        obj.rect.x += self.dx
+        obj.rect.y += self.dy
+
+    # позиционировать камеру на объекте target
+    def update(self, target):
+        self.dx = -(target.rect.x + target.rect.w // 2 - width // 2)
+        self.dy = -(target.rect.y + target.rect.h // 2 - height // 2)
+
+
+camera = Camera()
 running = True
-
-m = Map('room_2.txt')
-b = Hero(m)
+m = Map('room_1.txt')
+character = Hero(m)
+for i in range(200, 600, 100):
+    Mob(200, i)
 while running:
-
+    screen.fill('black')
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+    # изменяем ракурс камеры
+    camera.update(character)
+    # обновляем положение всех спрайтов
+    for sprite in all_sprites:
+        camera.apply(sprite)
     all_sprites.draw(screen)
     all_sprites.update()
     pygame.display.flip()
     clock.tick(30)
-
 pygame.quit()
