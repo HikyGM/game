@@ -2,7 +2,7 @@ import os
 import sys
 import pygame
 
-size = width, height = 500, 700
+size = width, height = 700, 700
 screen = pygame.display.set_mode(size)
 pygame.display.set_caption('Игра')
 clock = pygame.time.Clock()
@@ -170,7 +170,6 @@ class Hero(pygame.sprite.Sprite):
         self.attack_speed = 5
         self.timer = 0
         self.rect = self.image.get_rect()
-        self.x, self.y = self.rect.centerx, self.rect.centery
 
         self.mask = pygame.mask.from_surface(self.image)
 
@@ -245,28 +244,26 @@ class Hero(pygame.sprite.Sprite):
             self.direction = 'd'
             self.frames_run_count_right, self.frames_run_right = self.animated_move(self.frames_run_count_right,
                                                                                     self.frames_run_right)
-            if self.check_move((self.x + tile_width // 2 + 1, self.y)) != '#':
+            if self.check_move((self.rect.right + 1, self.rect.centery)) != '#':
                 self.rect.x += self.speed
         if keys[pygame.K_a]:
             self.direction = 'a'
             self.frames_run_count_left, self.frames_run_left = self.animated_move(self.frames_run_count_left,
                                                                                   self.frames_run_left)
-            if self.check_move((self.x - tile_width // 2 - 1, self.y)) != '#':
+            if self.check_move((self.rect.left - 1, self.rect.centery)) != '#':
                 self.rect.x -= self.speed
         if keys[pygame.K_w]:
             self.direction = 'w'
             self.frames_run_count_up, self.frames_run_up = self.animated_move(self.frames_run_count_up,
                                                                               self.frames_run_up)
-            if self.check_move((self.x, self.y - tile_height // 2 - 1)) != '#':
+            if self.check_move((self.rect.centerx, self.rect.top - 1)) != '#':
                 self.rect.y -= self.speed
         if keys[pygame.K_s]:
             self.direction = 's'
             self.frames_run_count_down, self.frames_run_down = self.animated_move(self.frames_run_count_down,
                                                                                   self.frames_run_down)
-            if self.check_move((self.x, self.y + tile_height // 2 + 1)) != '#':
+            if self.check_move((self.rect.centerx, self.rect.bottom + 1)) != '#':
                 self.rect.y += self.speed
-        self.x += camera.dx
-        self.y += camera.dy
 
     def update(self, *args, **kwargs):
         self.idle()
