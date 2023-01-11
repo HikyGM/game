@@ -1,156 +1,50 @@
-import os
-import sys
+from __future__ import annotations
+
+from pathlib import Path
+from typing import List
+
 import pygame
+from pygame.locals import K_MINUS, K_EQUALS, K_ESCAPE, K_r, K_w, K_s, K_a, K_d
+from pygame.locals import KEYDOWN, VIDEORESIZE, QUIT
+from pytmx.util_pygame import load_pygame
 
-size = width, height = 700, 700
-screen = pygame.display.set_mode(size)
-pygame.display.set_caption('Игра')
-clock = pygame.time.Clock()
-tile_width = tile_height = 50
+import pyscroll
+import pyscroll.data
+from pyscroll.group import PyscrollGroup
 
-# группы спрайтов
-all_sprites = pygame.sprite.Group()
-
-tiles_group = pygame.sprite.Group()
-hero_group = pygame.sprite.Group()
-mob_group = pygame.sprite.Group()
-missile_group = pygame.sprite.Group()
-block_group = pygame.sprite.Group()
+# define configuration variables here
+CURRENT_DIR = Path(__file__).parent
+RESOURCES_DIR = CURRENT_DIR / "data"
+HERO_MOVE_SPEED = 50  # pixels per second
 
 
-def load_image(name, colorkey=None):
-    fullname = os.path.join('data', name)
-    # если файл не существует, то выходим
-    if not os.path.isfile(fullname):
-        print(f"Файл с изображением '{fullname}' не найден")
-        sys.exit()
-    image = pygame.image.load(fullname)
-    if colorkey is not None:
-        image = image.convert()
-        if colorkey == -1:
-            colorkey = image.get_at((0, 0))
-        image.set_colorkey(colorkey)
-    else:
-        image = image.convert_alpha()
-    return image
+# simple wrapper to keep the screen resizeable
+def init_screen(width: int, height: int) -> pygame.Surface:
+    screen = pygame.display.set_mode((width, height), pygame.RESIZABLE)
+    return screen
 
 
-class Tile(pygame.sprite.Sprite):
-    tile_images = {
-        'wall': pygame.transform.scale(load_image('rooms/tiles/box.png'), (50, 50)),
-        'empty': pygame.transform.scale(load_image('rooms/tiles/grass.png'), (50, 50))
-    }
-
-    def __init__(self, tile_type, pos_x, pos_y):
-        super().__init__(tiles_group, all_sprites)
-        self.image = Tile.tile_images[tile_type]
-        self.rect = self.image.get_rect().move(
-            tile_width * pos_x, tile_height * pos_y)
-
-
-class Map:
-    def __init__(self, filename):
-        self.map_row = self.load_level(filename)
-        self.map = [list(row) for row in self.map_row]
-
-        self.size_map_x = width // tile_width
-        self.size_map_y = height // tile_height
-        self.tile_free = '0'
-
-        self.generate_level(self.map)
-
-    def load_level(self, filename):
-        filename = "data/rooms/" + filename
-        # читаем уровень, убирая символы перевода строки
-        with open(filename, 'r') as mapFile:
-            level_map = [line.strip() for line in mapFile]
-        return level_map
-
-    def get_size_map(self):
-        return self.size_map_x, self.size_map_y
-
-    def generate_level(self, level):
-        x, y = None, None
-        for y in range(len(level)):
-            for x in range(len(level[y])):
-                if level[y][x] == '0':
-                    Tile('empty', x, y)
-                elif level[y][x] == '#':
-                    block_group.add(Tile('wall', x, y))
-        return x, y
-
-    def get_tile_check(self, position):
-        x = (position[0]) // tile_width
-        y = (position[1]) // tile_height
-        # print(x, y)
-        return self.map[y][x]
-
-
-class Mob(pygame.sprite.Sprite):
-    image = load_image("characters/character.png")
-
-    def __init__(self, x, y, *groups):
-        super().__init__(mob_group, all_sprites)
-        self.image = Mob.image
-        self.rect = self.image.get_rect()
-        self.mask = pygame.mask.from_surface(self.image)
-        self.hp = 30
-        self.frames_run_down = []
-        self.frames_run_count_down = 0
-        self.run_down = 'characters/character_down.png'
-        self.cut_sheet(load_image(self.run_down), 3, 1, self.frames_run_down, x, y)
-
-    def cut_sheet(self, sheet, columns, rows, frames, x, y):
-        self.rect = pygame.Rect(x, y, sheet.get_width() // columns, sheet.get_height() // rows)
-        for j in range(rows):
-            for i in range(columns):
-                frame_location = (self.rect.w * i, self.rect.h * j)
-                frames.append(sheet.subsurface(pygame.Rect(
-                    frame_location, self.rect.size)))
-
-    def get_damage(self, hp):
-        self.hp -= hp
-        if self.hp <= 0:
-            self.kill()
-
-
-class Missile(pygame.sprite.Sprite):
-    def __init__(self, map, char, direction):
-        super().__init__(missile_group, all_sprites)
-
-        self.map = map
-        self.map_size = self.map.get_size_map()
-        self.speed = 10
-        self.char, self.direction = char, direction
-        print(self.char, self.direction)
-        self.image = pygame.Surface((2 * 5, 2 * 5),
-                                    pygame.SRCALPHA, 32)
-        pygame.draw.circle(self.image, pygame.Color("white"),
-                           (5, 5), 5)
-        self.rect = pygame.Rect(self.char[0], self.char[1], 2 * 5, 2 * 5)
-
-        self.mask = pygame.mask.from_surface(self.image)
-        self.rect.centerx = self.char[0]
-        self.rect.centery = self.char[1]
-
-    def update(self):
-        if self.direction == 'd':
-            self.rect.centerx += self.speed
-        if self.direction == 'a':
-            self.rect.centerx -= self.speed
-        if self.direction == 'w':
-            self.rect.centery -= self.speed
-        if self.direction == 's':
-            self.rect.centery += self.speed
-
-        for mob in pygame.sprite.spritecollide(self, mob_group, dokill=False):
-            mob.get_damage(10)
-            self.kill()
-        if pygame.sprite.spritecollideany(self, block_group):
-            self.kill()
+# make loading images a little easier
+def load_image(filename: str) -> pygame.Surface:
+    return pygame.image.load(str(RESOURCES_DIR / filename))
 
 
 class Hero(pygame.sprite.Sprite):
+    """
+    Our Hero
+    The Hero has three collision rects, one for the whole sprite "rect"
+    and "old_rect", and another to check collisions with walls, called
+    "feet".
+    The position list is used because pygame rects are inaccurate for
+    positioning sprites; because the values they get are 'rounded down'
+    as integers, the sprite would move faster moving left or up.
+    Feet is 1/2 as wide as the normal rect, and 8 pixels tall.  This
+    size allows the top of the sprite to overlap walls.  The feet rect
+    is used for collisions, while the 'rect' rect is used for drawing.
+    There is also an old_rect that is used to reposition the sprite if
+    it collides with level walls.
+    """
+
     # 48x60
     image = load_image("characters/character.png")
     image_d = load_image("characters/character_d.png")
@@ -158,42 +52,66 @@ class Hero(pygame.sprite.Sprite):
     image_w = load_image("characters/character_w.png")
     image_s = load_image("characters/character.png")
 
-    def __init__(self, map, position):
-        super().__init__(hero_group, all_sprites)
-        self.map = map
-        self.map_size = self.map.get_size_map()
-        self.size = (48, 60)
-        self.health_point = 100
-        self.speed = 6
-        self.direction = 's'
-        self.idle()
-        self.attack_speed = 5
-        self.timer = 0
+    def __init__(self, position) -> None:
+        super().__init__()
+        self.image = load_image("characters/Girl-idle.png").convert_alpha()
+        self.velocity = [0, 0]
+        self._position = [0.0, 0.0]
+        self._old_position = self.position
         self.rect = self.image.get_rect()
-        self.x, self.y = position[0] + self.size[0] // 2, position[1] + self.size[1] // 2
-        print(self.x, self.y)
+        self.feet = pygame.Rect(0, 0, self.rect.width * 0.5, 8)
+        self.speed_animation = 50
+        self.timer = 0
+        self.x, self.y = position
+        self.direction = 's'
+        # Анимации пресонажа
+        # 1.Список спрайтов анимации
+        # 2.Счётчик спрайта для вывода на экран
+        # 3.Изображение спрайтов
+        # 4.Функция генерирующая список спрайтов из изображения
+        # (изображение, кол-во колонок, кол-во строк, список добавления)
 
-        self.mask = pygame.mask.from_surface(self.image)
-
+        # Движение
         self.frames_run_down = []
         self.frames_run_count_down = 0
-        self.run_down = 'characters/character_down.png'
-        self.cut_sheet(load_image(self.run_down), 3, 1, self.frames_run_down)
+        self.run_down = 'characters/Girl-move-down.png'
+        self.cut_sheet(load_image(self.run_down), 6, 1, self.frames_run_down)
 
         self.frames_run_left = []
         self.frames_run_count_left = 0
-        self.run_left = 'characters/character_left.png'
-        self.cut_sheet(load_image(self.run_left), 3, 1, self.frames_run_left)
+        self.run_left = 'characters/Girl-move-left.png'
+        self.cut_sheet(load_image(self.run_left), 6, 1, self.frames_run_left)
 
         self.frames_run_right = []
         self.frames_run_count_right = 0
-        self.run_right = 'characters/character_right.png'
-        self.cut_sheet(load_image(self.run_right), 3, 1, self.frames_run_right)
+        self.run_right = 'characters/Girl-move-right.png'
+        self.cut_sheet(load_image(self.run_right), 6, 1, self.frames_run_right)
 
         self.frames_run_up = []
         self.frames_run_count_up = 0
-        self.run_up = 'characters/character_up.png'
-        self.cut_sheet(load_image(self.run_up), 3, 1, self.frames_run_up)
+        self.run_up = 'characters/Girl-move-up.png'
+        self.cut_sheet(load_image(self.run_up), 6, 1, self.frames_run_up)
+
+        # Ожидание
+        self.frames_idle_down = []
+        self.frames_idle_count_down = 0
+        self.idle_down = 'characters/Girl-idle-down.png'
+        self.cut_sheet(load_image(self.idle_down), 4, 1, self.frames_idle_down)
+
+        self.frames_idle_up = []
+        self.frames_idle_count_up = 0
+        self.idle_up = 'characters/Girl-idle-up.png'
+        self.cut_sheet(load_image(self.idle_up), 4, 1, self.frames_idle_up)
+
+        self.frames_idle_left = []
+        self.frames_idle_count_left = 0
+        self.idle_left = 'characters/Girl-idle-left.png'
+        self.cut_sheet(load_image(self.idle_left), 4, 1, self.frames_idle_left)
+
+        self.frames_idle_right = []
+        self.frames_idle_count_right = 0
+        self.idle_right = 'characters/Girl-idle-right.png'
+        self.cut_sheet(load_image(self.idle_right), 4, 1, self.frames_idle_right)
 
     def cut_sheet(self, sheet, columns, rows, frames):
         self.rect = pygame.Rect(self.x, self.y, sheet.get_width() // columns, sheet.get_height() // rows)
@@ -202,121 +120,213 @@ class Hero(pygame.sprite.Sprite):
                 frame_location = (self.rect.w * i, self.rect.h * j)
                 frames.append(sheet.subsurface(pygame.Rect(
                     frame_location, self.rect.size)))
-                frames.append(sheet.subsurface(pygame.Rect(
-                    frame_location, self.rect.size)))
+
+    def animated_move(self, direction):
+        self.timer += 1
+        if direction == 'i':
+            self.idle()
+            return
+        if self.timer > self.speed_animation:
+            if direction == 'w':
+                self.frames_run_count_up = (self.frames_run_count_up + 1) % len(self.frames_run_up)
+                self.image = self.frames_run_up[self.frames_run_count_up]
+            elif direction == 's':
+                self.frames_run_count_down = (self.frames_run_count_down + 1) % len(self.frames_run_down)
+                self.image = self.frames_run_down[self.frames_run_count_down]
+            elif direction == 'a':
+                self.frames_run_count_left = (self.frames_run_count_left + 1) % len(self.frames_run_left)
+                self.image = self.frames_run_left[self.frames_run_count_left]
+            elif direction == 'd':
+                self.frames_run_count_right = (self.frames_run_count_right + 1) % len(self.frames_run_right)
+                self.image = self.frames_run_right[self.frames_run_count_right]
+            self.direction = direction
+            self.timer = 0
 
     def idle(self):
-        if self.direction == 'd':
-            self.image = Hero.image_d
-        elif self.direction == 'a':
-            self.image = Hero.image_a
-        elif self.direction == 'w':
-            self.image = Hero.image_w
-        elif self.direction == 's':
-            self.image = Hero.image_s
+        self.timer += 1
+        if self.timer > self.speed_animation // 4 * 15:
+            if self.direction == 'd':
+                self.frames_idle_count_right = (self.frames_idle_count_right + 1) % len(self.frames_idle_right)
+                self.image = self.frames_idle_right[self.frames_idle_count_right]
+            elif self.direction == 'a':
+                self.frames_idle_count_left = (self.frames_idle_count_left + 1) % len(self.frames_idle_left)
+                self.image = self.frames_idle_left[self.frames_idle_count_left]
+            elif self.direction == 'w':
+                self.frames_idle_count_up = (self.frames_idle_count_up + 1) % len(self.frames_idle_up)
+                self.image = self.frames_idle_up[self.frames_idle_count_up]
+            elif self.direction == 's':
+                self.frames_idle_count_down = (self.frames_idle_count_down + 1) % len(self.frames_idle_down)
+                self.image = self.frames_idle_down[self.frames_idle_count_down]
+            self.timer = 0
 
-    def get_rect_center(self):
-        return self.rect.center
+    @property
+    def position(self) -> List[float]:
+        return list(self._position)
 
-    def take_damage(self, damage):
-        self.health_point -= damage
+    @position.setter
+    def position(self, value: List[float]) -> None:
+        self._position = list(value)
 
-    def attack(self):
-        keys = pygame.key.get_pressed()
-        if keys[pygame.K_SPACE]:
-            self.timer = (self.timer + 1) % self.attack_speed
-            if self.timer == 0:
-                Missile(self.map, self.rect.center, self.direction)
+    def update(self, dt: float) -> None:
+        self._old_position = self._position[:]
+        self._position[0] += self.velocity[0] * dt
+        self._position[1] += self.velocity[1] * dt
+        self.rect.topleft = self._position
+        self.feet.midbottom = self.rect.midbottom
 
-    def animated_move(self, frames_run_count, frames_run):
-        frames_run_count = (frames_run_count + 1) % len(frames_run)
-        self.image = frames_run[frames_run_count]
-        return frames_run_count, frames_run
+    def move_back(self, dt: float) -> None:
+        """        If called after an update, the sprite can move back        """
+        self._position = self._old_position
+        self.rect.topleft = self._position
+        self.feet.midbottom = self.rect.midbottom
 
-    def check_move(self, position):
-        # print(self.rect)
-        return self.map.get_tile_check(position)
 
-    def get_direction(self):
-        return self.direction
+class QuestGame:
+    """
+    This class is a basic game.
+    This class will load data, create a pyscroll group, a hero object.
+    It also reads input and moves the Hero around the map.
+    Finally, it uses a pyscroll group to render the map and Hero.
+    """
+    map_path = RESOURCES_DIR / "maps/map_1/map.tmx"
 
-    def move(self):
-        keys = pygame.key.get_pressed()
-        if keys[pygame.K_d]:
-            self.direction = 'd'
-            self.frames_run_count_right, self.frames_run_right = self.animated_move(self.frames_run_count_right,
-                                                                                    self.frames_run_right)
-            if not pygame.sprite.spritecollideany(self, block_group):
-                self.rect.x += self.speed
+    def __init__(self, screen: pygame.Surface) -> None:
+        self.screen = screen
+
+        # true while running
+        self.running = False
+
+        # load data from pytmx
+        tmx_data = load_pygame(self.map_path)
+
+        # setup level geometry with simple pygame rects, loaded from pytmx
+        self.obec = []
+        self.walls = []
+        for obj in tmx_data.objects:
+            if obj.name == 'asd':
+                self.obec.append(obj)
+            self.walls.append(pygame.Rect(obj.x, obj.y, obj.width, obj.height))
+
+        if self.obec:
+            print(self.obec)
+            print(self.obec[0].name)
+        # create new renderer (camera)
+        self.map_layer = pyscroll.BufferedRenderer(
+            data=pyscroll.data.TiledMapData(tmx_data),
+            size=screen.get_size(),
+            clamp_camera=True,
+        )
+        self.map_layer.zoom = 3
+
+        # pyscroll supports layered rendering.  our map has 3 'under'
+        # layers.  layers begin with 0.  the layers are 0, 1, and 2.
+        # sprites are always drawn over the tiles of the layer they are
+        # on.  since we want the sprite to be on top of layer 2, we set
+        # the default layer for sprites as 2.
+        self.group = PyscrollGroup(map_layer=self.map_layer, default_layer=1)
+
+        # put the hero in the center of the map
+        self.hero = Hero((200, 200))
+        self.hero.position = self.map_layer.map_rect.center
+
+        # add our hero to the group
+        self.group.add(self.hero)
+
+    def draw(self) -> None:
+        # center the map/screen on our Hero
+        self.group.center(self.hero.rect.center)
+        # draw the map and all sprites
+        self.group.draw(self.screen)
+
+    def handle_input(self) -> None:
+        """        Handle pygame input events        """
+        for event in pygame.event.get():
+            if event.type == QUIT:
+                self.running = False
+                break
+            elif event.type == KEYDOWN:
+                if event.key == K_ESCAPE:
+                    self.running = False
+                    break
+                elif event.key == K_r:
+                    self.map_layer.reload()
+
+                elif event.key == K_EQUALS:
+                    self.map_layer.zoom += 0.25
+                elif event.key == K_MINUS:
+                    value = self.map_layer.zoom - 0.25
+                    if value > 0:
+                        self.map_layer.zoom = value
+            # this will be handled if the window is resized
+            elif event.type == VIDEORESIZE:
+                self.screen = init_screen(event.w, event.h)
+                self.map_layer.set_size((event.w, event.h))
+
+        # use `get_pressed` for an easy way to detect held keys
+        pressed = pygame.key.get_pressed()
+        direction = 's'
+        if pressed[K_w] or pressed[K_s] or pressed[K_a] or pressed[K_d]:
+            if pressed[K_w]:
+                self.hero.velocity[1] = -HERO_MOVE_SPEED
+                direction = 'w'
+            elif pressed[K_s]:
+                self.hero.velocity[1] = HERO_MOVE_SPEED
+                direction = 's'
             else:
-                self.rect.x -= self.speed
-        if keys[pygame.K_a]:
-            self.direction = 'a'
-            self.frames_run_count_left, self.frames_run_left = self.animated_move(self.frames_run_count_left,
-                                                                                  self.frames_run_left)
-            if not pygame.sprite.spritecollideany(self, block_group):
-                self.rect.x -= self.speed
+                self.hero.velocity[1] = 0
+            if pressed[K_a]:
+                self.hero.velocity[0] = -HERO_MOVE_SPEED
+                direction = 'a'
+            elif pressed[K_d]:
+                self.hero.velocity[0] = HERO_MOVE_SPEED
+                direction = 'd'
             else:
-                self.rect.x += self.speed
-        if keys[pygame.K_w]:
-            self.direction = 'w'
-            self.frames_run_count_up, self.frames_run_up = self.animated_move(self.frames_run_count_up,
-                                                                              self.frames_run_up)
-            if not pygame.sprite.spritecollideany(self, block_group):
-                self.rect.y -= self.speed
-            else:
-                self.rect.y += self.speed
-        if keys[pygame.K_s]:
-            self.direction = 's'
-            self.frames_run_count_down, self.frames_run_down = self.animated_move(self.frames_run_count_down,
-                                                                                  self.frames_run_down)
-            if not pygame.sprite.spritecollideany(self, block_group):
-                self.rect.y += self.speed
-            else:
-                self.rect.y -= self.speed
+                self.hero.velocity[0] = 0
+        else:
+            direction = 'i'
+            self.hero.velocity[1] = 0
+            self.hero.velocity[0] = 0
+        self.hero.animated_move(direction)
 
-    def update(self, *args, **kwargs):
-        self.idle()
-        self.move()
-        self.attack()
+    def update(self, dt: float):
+        """        Tasks that occur over time should be handled here        """
+        self.group.update(dt)
 
+        # check if the sprite's feet are colliding with wall
+        # sprite must have a rect called feet, and move_back method,
+        # otherwise this will fail
+        for sprite in self.group.sprites():
+            if sprite.feet.collidelist(self.walls) > -1:
+                sprite.move_back(dt)
 
-class Camera:
-    # зададим начальный сдвиг камеры
-    def __init__(self):
-        self.dx = 0
-        self.dy = 0
-
-    # сдвинуть объект obj на смещение камеры
-    def apply(self, obj):
-        obj.rect.x += self.dx
-        obj.rect.y += self.dy
-
-    # позиционировать камеру на объекте target
-    def update(self, target):
-        self.dx = -(target.rect.x + target.rect.w // 2 - width // 2)
-        self.dy = -(target.rect.y + target.rect.h // 2 - height // 2)
+    def run(self):
+        """        Run the game loop        """
+        clock = pygame.time.Clock()
+        self.running = True
+        try:
+            while self.running:
+                dt = clock.tick() / 1000.0
+                self.handle_input()
+                self.update(dt)
+                self.draw()
+                pygame.display.flip()
+        except KeyboardInterrupt:
+            self.running = False
 
 
-running = True
-m = Map('room_1.txt')
-character = Hero(m, (100, 100))
-camera = Camera()
+def main() -> None:
+    pygame.init()
+    pygame.font.init()
+    screen = init_screen(960, 800)
+    pygame.display.set_caption("Quest - An epic journey.")
+    try:
+        game = QuestGame(screen)
+        game.run()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        pygame.quit()
 
-for i in range(200, 600, 100):
-    Mob(200, i)
-while running:
-    screen.fill('black')
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-    # изменяем ракурс камеры
-    camera.update(character)
-    # обновляем положение всех спрайтов
-    for sprite in all_sprites:
-        camera.apply(sprite)
-    all_sprites.draw(screen)
-    all_sprites.update()
-    pygame.display.flip()
-    clock.tick(30)
-pygame.quit()
+
+if __name__ == "__main__":
+    main()
